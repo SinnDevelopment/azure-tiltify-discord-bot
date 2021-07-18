@@ -1,14 +1,14 @@
 {
-  "name": "tiltify-donation-bot",
-  "version": "2.0.1",
-  "description": "A bot that posts Tiltify donation data to Discord.",
-  "homepage": "https://github.com/nicnacnic/tiltify-donation-bot",
-  "author": "nicnacnic",
-  "url": "https://nicnacnic.com",
+  "name": "aws-tiltify-discord-bot",
+  "version": "1.0.0",
+  "description": "A bot that posts Tiltify donation data to Discord. Designed to be hosted on AWS ECS, hooking into ECR and DynamoDB",
+  "homepage": "https://github.com/SinnDevelopment/AWS-tiltify-discord-bot",
+  "author": "Sinn Development",
+  "url": "https://sinndevelopment.com",
   "license": "MIT",
   "dependencies": {
     "discord.js": "^13.0.0-dev.7e30011.1625338909",
-    "fs": "^0.0.1-security",
+    "mongoose": "^5.13.3",
     "node-fetch": "^2.6.1"
   }
 }
