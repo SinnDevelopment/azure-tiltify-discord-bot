@@ -4,7 +4,16 @@ const mongoose = require('mongoose');
 const M = require('./model');
 const C = require('./config');
 
-const {fetchData, generateData, generateEmbed, listEmbedGenerator, convertToSlug, titleCase, globalCommandData, guildCommandData} = require('./utils');
+const {
+    fetchData,
+    generateData,
+    generateEmbed,
+    listEmbedGenerator,
+    convertToSlug,
+    titleCase,
+    globalCommandData,
+    guildCommandData
+} = require('./utils');
 
 const client = new Discord.Client({intents: ['GUILDS', 'GUILD_MESSAGES']});
 
@@ -14,6 +23,11 @@ const Guild = mongoose.model('Guild', M.DISCORD_GUILD);
 mongoose.connect(C.MONGO_URL, {useNewUrlParser: true, useUnifiedTopology: true});
 
 const db = mongoose.connection;
+
+db.on('open', function ()
+{
+    console.log("Connected to mongo.");
+})
 
 
 client.once('ready', async () =>
@@ -29,33 +43,35 @@ client.once('ready', async () =>
     // Check donations every n seconds (defined in config).
     setInterval(function ()
     {
-        let allGuilds = Guild.find({}).exec();
-        allGuilds.filter(g => g.isActive).forEach(guild =>
+        Guild.find({}).then(function (allGuilds)
         {
-            guild.campaigns.filter(c => c.isActive).forEach(campaign =>
+            allGuilds.filter(g => g.isActive).forEach(guild =>
             {
-                let donation;
-                fetchData('campaigns', `${campaign.tiltifyCampaignId}/donations`, (callback) =>
+                guild.campaigns.filter(c => c.isActive).forEach(campaign =>
                 {
-                    donation = callback;
-                    try
+                    let donation;
+                    fetchData('campaigns', `${campaign.tiltifyCampaignId}/donations`, (callback) =>
                     {
-                        if (campaign.lastDonationId !== donation.data[0].id)
+                        donation = callback;
+                        try
                         {
-                            generateEmbed(campaign, donation.data[0],
-                                (callback) => client.channels.cache
-                                    .get(guild.discordChannelId)
-                                    .send({embeds: [callback]}));
-                            campaign.lastDonationId = donation.data[0].id;
-                            writeData();
+                            if (campaign.lastDonationId !== donation.data[0].id)
+                            {
+                                generateEmbed(campaign, donation.data[0],
+                                    (callback) => client.channels.cache
+                                        .get(guild.discordChannelId)
+                                        .send({embeds: [callback]}));
+                                campaign.lastDonationId = donation.data[0].id;
+                                guild.save().then(() => updateStatus());
+                            }
                         }
-                    }
-                    catch
-                    {
-                        console.log('There was an error reading donation data on ' + Date.toString());
-                    }
+                        catch
+                        {
+                            console.log('There was an error reading donation data on ' + Date.toString());
+                        }
+                    });
                 });
-            });
+            })
         })
     }, C.DONATION_REFRESH)
 
@@ -109,7 +125,7 @@ client.once('ready', async () =>
             }
         }
         else
-            interaction.editReply({content: 'You do not have permission to use this command.', ephemeral: true});
+            await interaction.editReply({content: 'You do not have permission to use this command.', ephemeral: true});
     });
 
     /**
@@ -118,8 +134,10 @@ client.once('ready', async () =>
     function updateStatus()
     {
         let numCampaigns = 0;
-        let guilds = Guild.find({}).exec();
-        guilds.forEach(g => numCampaigns += g.campaigns.countDocuments());
+        Guild.find({}).then(function (guilds)
+        {
+            guilds.forEach(g => numCampaigns += g.campaigns.countDocuments());
+        });
         client.user.setPresence({status: "online"});
         client.user.setActivity(numCampaigns + ' campaigns...', {type: "WATCHING"});
     }
@@ -177,7 +195,7 @@ client.once('ready', async () =>
                     generateData(result.data, (callback) =>
                     {
                         guild.campaigns.push(callback);
-                        writeData(guild);
+                        guild.save().then(() => updateStatus());
                         createGuildCommands(interaction);
                         interaction.editReply('Donations have been setup for campaign `' + result.data.name + '`.')
                     })
@@ -205,7 +223,7 @@ client.once('ready', async () =>
                                     }
                                 })
                                 guild.connectedId = interaction.options.get('id').value;
-                                writeData(guild);
+                                guild.save().then(() => updateStatus());
                                 await createGuildCommands(interaction);
                                 await interaction.editReply('Donations have been setup for team `' + result.data.name + '`, ' + number + ' active campaigns were found.')
                                 return;
@@ -306,7 +324,7 @@ client.once('ready', async () =>
         let action = interaction.options.get('action').value === 'start';
 
         guild.isActive = action;
-        writeData(guild);
+        guild.save().then(() => updateStatus());
 
         if (action)
         {
@@ -338,7 +356,7 @@ client.once('ready', async () =>
                     generateData(campaignData.data, (data) =>
                     {
                         guild.campaigns.push(data)
-                        writeData(guild);
+                        guild.save().then(() => updateStatus());
                         interaction.editReply('Campaign `' + campaignData.data.name + '` has been added.')
                     });
                 }
@@ -356,7 +374,7 @@ client.once('ready', async () =>
             let campaign = guild.campaigns.find({tiltifyCampaignId: interaction.options.get('id').value}).exec();
             interaction.editReply('Campaign `' + campaign.name + '` has been removed.')
             campaign.isActive = false;
-            writeData(guild);
+            guild.save().then(() => updateStatus());
             return;
         }
         interaction.editReply('There is only one active campaign, please use `/delete` instead.')
@@ -373,7 +391,7 @@ client.once('ready', async () =>
     {
         guild.discordChannelId = interaction.options.get('id').value;
         interaction.editReply('Donations channel has been changed to <#' + interaction.options.get('id').value + '>')
-        writeData(guild);
+        guild.save().then(() => updateStatus());
     }
 
     // Refresh campaign data. (/refresh)
@@ -386,7 +404,7 @@ client.once('ready', async () =>
                 if (campaignData.data.status === 'retired')
                 {
                     c.isActive = false;
-                    writeData(guild);
+                    guild.save().then(() => updateStatus());
                 }
                 if (guild.connectedId !== undefined)
                 {
@@ -399,7 +417,7 @@ client.once('ready', async () =>
                                 generateData(campaign, (callback) =>
                                 {
                                     guild.campaigns.push(callback)
-                                    writeData(guild);
+                                    guild.save().then(() => updateStatus());
                                 });
                             }
                         })
@@ -417,7 +435,7 @@ client.once('ready', async () =>
     {
         await client.guilds.cache.get(interaction.guildID).commands.set([]);
         guild.campaigns = [];
-        writeData(guild);
+        guild.save().then(() => updateStatus());
         await interaction.editReply('The bot was deactivated. To set up again, please use `/setup`.');
     }
 
@@ -491,69 +509,44 @@ client.once('ready', async () =>
     // Auto refresh data every 12 hours.
     function dailyRefresh()
     {
-        let allGuilds = Guild.find({}).exec();
+        Guild.find({}).then(function (allGuilds)
+        {
 
-        allGuilds.forEach(g => g.campaigns.forEach(c =>
-        {
-            fetchData('campaigns', c.tiltifyCampaignId, (result) =>
+            allGuilds.forEach(g => g.campaigns.forEach(c =>
             {
-                if (result.data.status === 'retired' || result.meta.status !== 200)
-                    c.isActive = false;
-            })
-        }));
-        writeData(allGuilds);
+                fetchData('campaigns', c.tiltifyCampaignId, (result) =>
+                {
+                    if (result.data.status === 'retired' || result.meta.status !== 200)
+                        c.isActive = false;
+                })
+                g.save();
+            }));
 
-        allGuilds.forEach(g =>
-        {
-            if (g.connectedId !== undefined)
+            allGuilds.forEach(g =>
             {
-                fetchData(allGuilds[i].tiltifyType, g.connectedId + '/campaigns?count=100', (result) =>
+                if (g.connectedId !== undefined)
                 {
-                    result.data.forEach(campaign =>
+                    fetchData(allGuilds[i].tiltifyType, g.connectedId + '/campaigns?count=100', (result) =>
                     {
-                        if (campaign.status !== 'retired' && !allGuilds[i].campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
-                            generateData(campaign, (callback) =>
-                            {
-                                g.campaigns.push(callback);
-                                writeData(allGuilds);
-                            })
-                    })
-                });
-            }
-        });
-        for (let i = 0; i < allGuilds.length; i++)
-        {
-            if (allGuilds[i].connectedId !== undefined)
-            {
-                fetchData(allGuilds[i].tiltifyType, allGuilds[i].connectedId + '/campaigns?count=100', (result) =>
-                {
-                    result.data.forEach(campaign =>
-                    {
-                        if (campaign.status !== 'retired' && !allGuilds[i].campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
-                            generateData(campaign, (callback) =>
-                            {
-                                allGuilds[i].campaigns.push(callback);
-                                writeData(allGuilds);
-                            })
-                    })
-                });
-            }
-        }
+                        result.data.forEach(campaign =>
+                        {
+                            if (campaign.status !== 'retired' && !allGuilds[i].campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
+                                generateData(campaign, (callback) =>
+                                {
+                                    g.campaigns.push(callback);
+                                    g.save().then(() => updateStatus());
+                                })
+                        })
+                    });
+                }
+            });
+        })
     }
 
     // Create guild slash commands.
     async function createGuildCommands(interaction)
     {
         await client.guilds.cache.get(interaction.guildID).commands.set(guildCommandData);
-    }
-
-    /**
-     * Save guild to mongo
-     * @param guild
-     */
-    function writeData(guild)
-    {
-        guild.save().then(() => updateStatus());
     }
 });
 

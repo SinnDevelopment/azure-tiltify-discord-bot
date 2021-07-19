@@ -5,7 +5,7 @@ const {
     MONGO_URL
 } = process.env
 
-export default {
+module.exports={
     DISCORD_TOKEN: DISCORD_TOKEN || '',
     TILTIFY_ACCESS_TOKEN: TILTIFY_ACCESS_TOKEN || '',
     DONATION_REFRESH: !!Number(DONATION_REFRESH) || 30000,

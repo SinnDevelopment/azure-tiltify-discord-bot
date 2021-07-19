@@ -20,4 +20,4 @@ const TILTIFY_CAMPAIGN = new mongoose.Schema({
     tiltifyType: String,
     connectedId: String,
 });
-export default {DISCORD_GUILD: DISCORD_GUILD};
+module.exports= {DISCORD_GUILD: DISCORD_GUILD};
