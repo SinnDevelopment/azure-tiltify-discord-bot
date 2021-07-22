@@ -126,10 +126,10 @@ client.once('ready', async () =>
                 isSetup ? removeCampaign(interaction, guild) : error(interaction, 0);
                 break;
             case 'list':
-                isSetup ? generateListEmbed(interaction, guild) : error(interaction, 0);
+                isSetup ? await generateListEmbed(interaction, guild) : error(interaction, 0);
                 break;
             case 'channel':
-                isSetup ? changeChannel(interaction, guild) : error(interaction, 0);
+                isSetup ? await changeChannel(interaction, guild) : error(interaction, 0);
                 break;
             case 'refresh':
                 isSetup ? await refreshData(interaction, guild) : error(interaction, 0);
@@ -224,18 +224,18 @@ client.once('ready', async () =>
                     await respondToInteraction(interaction, '`' + result.data.name + '` has been disbanded, please choose an active team.');
                     return;
                 }
-                let teamData = fetchData('teams', id_param.value + '/campaigns?count=100')
+                let teamData = await fetchData('teams', id_param.value + '/campaigns?count=100')
                 if (teamData.meta.status === 200)
                 {
-                    teamData.data.forEach(campaign =>
+                    for (const campaign of teamData.data)
                     {
                         if (campaign.status !== 'retired')
                         {
                             number++;
-                            guild.campaigns.push(generateData(campaign));
-                            guild.save().then(() => updateStatus());
+                            guild.campaigns.push(await generateData(campaign));
                         }
-                    })
+                    }
+                    guild.save().then(() => updateStatus());
                     guild.connectedId = id_param.value;
 
                     await createGuildCommands(interaction);
@@ -369,9 +369,9 @@ client.once('ready', async () =>
     // Refresh campaign data. (/refresh)
     async function refreshData(interaction, guild)
     {
-        guild.campaigns.forEach(c =>
+        for (const c of guild.campaigns)
         {
-            let campaignData = fetchData('campaigns', c)
+            let campaignData = await fetchData('campaigns', c)
             if (campaignData.data.status === 'retired')
             {
                 c.isActive = false;
@@ -379,25 +379,11 @@ client.once('ready', async () =>
             }
             if (guild.connectedId !== undefined)
             {
-                let result = fetchData(guild.type, guild.connectedId + '/campaigns?count=100')
-
-                result.data.forEach(campaign =>
-                {
-                    if (campaign.status !== 'retired' && !guild.campaigns.includes(item => item.id === campaign.id))
-                    {
-                        generateData(campaign, (callback) =>
-                        {
-                            guild.campaigns.push(callback)
-                            guild.save().then(() => updateStatus());
-                        });
-                    }
-                })
+                updateCampaigns(guild)
             }
-
-        });
+        }
         guild.save().then(() => updateStatus());
         await respondToInteraction(interaction, 'Campaigns have been refreshed.');
-
     }
 
     // Delete all data. (/delete)
@@ -471,7 +457,7 @@ client.once('ready', async () =>
     }
 
 // Auto refresh data every 12 hours.
-    function dailyRefresh()
+    async function dailyRefresh()
     {
         let allGuilds = Guild.find({})
 
@@ -491,18 +477,20 @@ client.once('ready', async () =>
         {
             const g = allGuilds[i];
             if (g.connectedId !== undefined)
-            {
-                let result = fetchData(g.tiltifyType, g.connectedId + '/campaigns?count=100')
+                updateCampaigns(g)
 
-                result.data.forEach(campaign =>
-                {
-                    if (campaign.status !== 'retired' && !g.campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
-                        g.campaigns.push(generateData(campaign));
-                })
-            }
             g.save();
         }
         updateStatus()
+    }
+
+    async function updateCampaigns(guild)
+    {
+        let result = await fetchData(guild.tiltifyType, guild.connectedId + '/campaigns?count=100')
+
+        for (const campaign of result.data)
+            if (campaign.status !== 'retired' && !guild.campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
+                guild.campaigns.push(await generateData(campaign));
     }
 
 // Create guild slash commands.
