@@ -10,6 +10,7 @@
     "discord.js": "^13.0.0-dev.7e30011.1625338909",
     "mongoose": "^5.13.3",
     "node-fetch": "^2.6.1",
+    "slash-commands": "^1.4.0",
     "yarn": "^1.22.10"
   }
 }

@@ -1,5 +1,6 @@
 const Discord = require('discord.js');
 const mongoose = require('mongoose');
+const {DiscordInteractions} = require("slash-commands");
 
 const M = require('./model');
 const C = require('./config');
@@ -15,8 +16,16 @@ const {
     guildCommandData
 } = require('./utils');
 
-const client = new Discord.Client({intents: ['GUILDS', 'GUILD_MESSAGES']});
 
+console.log("CONFIG: ");
+console.log(C);
+
+const client = new Discord.Client({intents: ['GUILDS', 'GUILD_MESSAGES']});
+const discordInteractions = new DiscordInteractions({
+    applicationId: C.DISCORD_APP_ID,
+    authToken: C.DISCORD_TOKEN,
+    publicKey: C.DISCORD_PUB_KEY
+})
 
 const Guild = mongoose.model('Guild', M.DISCORD_GUILD);
 
@@ -27,15 +36,27 @@ const db = mongoose.connection;
 db.on('open', function ()
 {
     console.log("Connected to mongo.");
+    Guild.find({}).then(function (found)
+    {
+        console.log("Found " + found.length + " documents");
+    })
 })
-
 
 client.once('ready', async () =>
 {
     // Check for global commands.
-    const commandList = await client.api.applications(client.user.id).commands.get();
-    if (commandList === undefined || commandList.length === 0)
+    let commandList = await discordInteractions.getApplicationCommands();
+    if (commandList === undefined || commandList.length === 0 || commandList.length !== globalCommandData.length)
+    {
+        console.log("Global commands are out of date, installing")
         await client.application?.commands.set(globalCommandData);
+    }
+    else
+    {
+        console.log("Commands have been installed already");
+        console.debug(commandList)
+    }
+
     console.log('Global command check complete, the bot is now online.');
     updateStatus();
     dailyRefresh();
@@ -43,33 +64,31 @@ client.once('ready', async () =>
     // Check donations every n seconds (defined in config).
     setInterval(function ()
     {
-        Guild.find({}).then(function (allGuilds)
+        //console.debug("Checking for donations...")
+        Guild.find({isActive: true}).then(function (allGuilds)
         {
-            allGuilds.filter(g => g.isActive).forEach(guild =>
+            allGuilds.forEach(guild =>
             {
+                console.debug("Checking for: " + guild.tiltifyCampaignName);
                 guild.campaigns.filter(c => c.isActive).forEach(campaign =>
                 {
-                    let donation;
-                    fetchData('campaigns', `${campaign.tiltifyCampaignId}/donations`, (callback) =>
+
+                    let donation = fetchData('campaigns', `${campaign.tiltifyCampaignId}/donations`)
+                    try
                     {
-                        donation = callback;
-                        try
+                        if (campaign.lastDonationId !== donation.data[0].id)
                         {
-                            if (campaign.lastDonationId !== donation.data[0].id)
-                            {
-                                generateEmbed(campaign, donation.data[0],
-                                    (callback) => client.channels.cache
-                                        .get(guild.discordChannelId)
-                                        .send({embeds: [callback]}));
-                                campaign.lastDonationId = donation.data[0].id;
-                                guild.save().then(() => updateStatus());
-                            }
+                            let embed = generateEmbed(campaign, donation.data[0])
+                            client.channels.cache.get(guild.discordChannelId).send({embeds: [callback]})
+                            campaign.lastDonationId = donation.data[0].id;
+                            guild.save().then(() => updateStatus());
                         }
-                        catch
-                        {
-                            console.log('There was an error reading donation data on ' + Date.toString());
-                        }
-                    });
+                    }
+                    catch
+                    {
+                        console.log('There was an error reading donation data on ' + Date.toString());
+                    }
+
                 });
             })
         })
@@ -82,50 +101,46 @@ client.once('ready', async () =>
     }, 60 * 60 * 1000 * 12);
 
     // Check and route a command.
-    client.on('interactionCreate', async interaction =>
+    client.ws.on('INTERACTION_CREATE', async interaction =>
     {
-        await interaction.defer();
-        const botID = await interaction.guild.members.fetch(client.user.id);
-        if (interaction.channel.permissionsFor(botID).has("MANAGE_MESSAGES"))
+        console.log("Interaction received");
+        console.log(interaction);
+        let isSetup = await Guild.exists({discordGuildId: interaction.guild_id});
+        let guild = await Guild.find({discordGuildId: interaction.guild_id}).exec();
+        console.log("guild: " + guild)
+        switch (interaction.data.name)
         {
-            let isSetup = Guild.exists({discordGuildId: interaction.guildID});
-            let guild = Guild.findOne({discordGuildId: interaction.guildID}).exec();
-            switch (interaction.commandName)
-            {
-                case 'ping':
-                    pingPong(interaction, guild);
-                    break;
-                case 'setup':
-                    await setupTiltify(interaction, guild);
-                    break;
-                case 'tiltify':
-                    isSetup ? await startStopDonations(interaction, guild) : error(interaction, 0);
-                    break;
-                case 'add':
-                    isSetup ? await addCampaign(interaction, guild) : error(interaction, 0);
-                    break;
-                case 'remove':
-                    isSetup ? removeCampaign(interaction, guild) : error(interaction, 0);
-                    break;
-                case 'list':
-                    isSetup ? generateListEmbed(interaction, guild) : error(interaction, 0);
-                    break;
-                case 'channel':
-                    isSetup ? changeChannel(interaction, guild) : error(interaction, 0);
-                    break;
-                case 'refresh':
-                    isSetup ? await refreshData(interaction, guild) : error(interaction, 0);
-                    break;
-                case 'delete':
-                    isSetup ? await deleteData(interaction, guild) : error(interaction, 0);
-                    break;
-                case 'find':
-                    isSetup ? await findCampaigns(interaction, guild) : error(interaction, 0);
-                    break;
-            }
+            case 'ping':
+                pingPong(interaction, guild);
+                break;
+            case 'setup':
+                await setupTiltify(interaction, guild);
+                break;
+            case 'tiltify':
+                isSetup ? await startStopDonations(interaction, guild) : error(interaction, 0);
+                break;
+            case 'add':
+                isSetup ? await addCampaign(interaction, guild) : error(interaction, 0);
+                break;
+            case 'remove':
+                isSetup ? removeCampaign(interaction, guild) : error(interaction, 0);
+                break;
+            case 'list':
+                isSetup ? generateListEmbed(interaction, guild) : error(interaction, 0);
+                break;
+            case 'channel':
+                isSetup ? changeChannel(interaction, guild) : error(interaction, 0);
+                break;
+            case 'refresh':
+                isSetup ? await refreshData(interaction, guild) : error(interaction, 0);
+                break;
+            case 'delete':
+                isSetup ? await deleteData(interaction, guild) : error(interaction, 0);
+                break;
+            case 'find':
+                isSetup ? await findCampaigns(interaction, guild) : error(interaction, 0);
+                break;
         }
-        else
-            await interaction.editReply({content: 'You do not have permission to use this command.', ephemeral: true});
     });
 
     /**
@@ -136,7 +151,7 @@ client.once('ready', async () =>
         let numCampaigns = 0;
         Guild.find({}).then(function (guilds)
         {
-            guilds.forEach(g => numCampaigns += g.campaigns.countDocuments());
+            guilds.forEach(g => numCampaigns += g.campaigns.length);
         });
         client.user.setPresence({status: "online"});
         client.user.setActivity(numCampaigns + ' campaigns...', {type: "WATCHING"});
@@ -149,7 +164,7 @@ client.once('ready', async () =>
      */
     function pingPong(interaction)
     {
-        interaction.editReply('`' + (Date.now() - interaction.createdTimestamp) + '` ms');
+        respondToInteraction(interaction, '`' + (Date.now() - interaction.createdTimestamp) + '` ms');
     }
 
     // Initial bot setup. (/setup)
@@ -161,123 +176,82 @@ client.once('ready', async () =>
      */
     async function setupTiltify(interaction, guild)
     {
-        if (await Guild.exists({discordGuildId: interaction.guildID}))
+        if (await Guild.exists({discordGuildId: interaction.guild_id}))
         {
-            interaction.editReply('This server is already in the database, please use `/add` to add a campaign or `/delete` .')
+            console.log(`requesting guild Id: ${interaction.guild_id} - found`)
+            await respondToInteraction(interaction, 'This server is already in the database, please use `/add` to add a campaign or `/delete` .')
             return;
         }
 
-        guild = new Guild({discordGuildId: interaction.guildID});
+        guild = new Guild({discordGuildId: interaction.guild_id});
 
-        fetchData(interaction.options.get('type').value, interaction.options.get('id').value, async (result) =>
+        let type_param = interaction.data.options.find(e => e.name === 'type')
+        let id_param = interaction.data.options.find(e => e.name === 'id')
+
+
+        let result = await fetchData(type_param.value, id_param.value)
+
+        if (result.meta.status !== 200)
         {
-            if (result.meta.status !== 200)
-            {
-                error(interaction, result.meta.status)
-                return;
-            }
-            let number = 0;
+            error(interaction, result.meta.status)
+            return;
+        }
+        let number = 0;
 
-            guild.discordGuildId = interaction.guildID;
-            guild.discordChannelId = interaction.channelID;
-            guild.campaigns = [];
-            guild.isActive = false;
-            guild.tiltifyType = interaction.options.get('type').value;
+        guild.discordGuildId = interaction.guild_id;
+        guild.discordChannelId = interaction.channel_id;
+        guild.campaigns = [];
+        guild.isActive = false;
+        guild.tiltifyType = type_param.value
 
-            switch (interaction.options.get('type').value)
-            {
-                case 'campaigns':
-                    if (result.data.status === 'retired')
+        switch (type_param.value)
+        {
+            case 'campaigns':
+                if (result.data.status === 'retired')
+                {
+                    await respondToInteraction(interaction, '`' + result.data.name + '` has already ended, please choose an active campaign.');
+                    return;
+                }
+                guild.campaigns.push(generateData(result.data));
+                guild.save().then(() => updateStatus());
+                await createGuildCommands(interaction);
+                await respondToInteraction(interaction, 'Donations have been setup for campaign `' + result.data.name + '`.')
+
+                break;
+            case 'teams':
+                if (result.data.disbanded)
+                {
+                    await respondToInteraction(interaction, '`' + result.data.name + '` has been disbanded, please choose an active team.');
+                    return;
+                }
+                let teamData = fetchData('teams', id_param.value + '/campaigns?count=100')
+                if (teamData.meta.status === 200)
+                {
+                    teamData.data.forEach(campaign =>
                     {
-                        interaction.editReply('`' + result.data.name + '` has already ended, please choose an active campaign.');
-                        return;
-                    }
-                    generateData(result.data, (callback) =>
-                    {
-                        guild.campaigns.push(callback);
-                        guild.save().then(() => updateStatus());
-                        createGuildCommands(interaction);
-                        interaction.editReply('Donations have been setup for campaign `' + result.data.name + '`.')
-                    })
-                    break;
-                case 'teams':
-                    if (result.data.disbanded)
-                    {
-                        await interaction.editReply('`' + result.data.name + '` has been disbanded, please choose an active team.');
-                        return;
-                    }
-                    fetchData('teams', interaction.options.get('id').value + '/campaigns?count=100',
-                        async (teamData) =>
+                        if (campaign.status !== 'retired')
                         {
-                            if (teamData.meta.status === 200)
-                            {
-                                teamData.data.forEach(campaign =>
-                                {
-                                    if (campaign.status !== 'retired')
-                                    {
-                                        number++;
-                                        generateData(campaign, (callback) =>
-                                        {
-                                            guild.campaigns.push(callback);
-                                        });
-                                    }
-                                })
-                                guild.connectedId = interaction.options.get('id').value;
-                                guild.save().then(() => updateStatus());
-                                await createGuildCommands(interaction);
-                                await interaction.editReply('Donations have been setup for team `' + result.data.name + '`, ' + number + ' active campaigns were found.')
-                                return;
-                            }
-                            error(interaction, result.meta.status)
-                        });
-                    break;
-                case 'causes':
-                    await interaction.editReply('Restricted to Tiltify registered causes with a valid API token.')
-                    break;
+                            number++;
+                            guild.campaigns.push(generateData(campaign));
+                            guild.save().then(() => updateStatus());
+                        }
+                    })
+                    guild.connectedId = id_param.value;
 
-                // let causeData;
-                // fetchData('causes', interaction.options.get('id').value + '/campaigns?count=100', (callback) => causeData = callback);
-                // if (causeData.meta.status === 200) {
-                // 	causeData.data.forEach(campaign => {
-                // 		if (campaign.status !== 'retired') {
-                // 			number++;
-                // 			generateData(campaign, (callback) => dataToWrite.campaigns.push(callback))
-                // 		}
-                // 	})
-                // dataToWrite.push({ connectedId: interaction.options.get('id').value })
-                // 	await guildData.push(dataToWrite);
-                // 	writeData();
-                // 	createGuildCommands(interaction);
-                // 	interaction.editReply('Donations have been setup for cause `' + result.data.name + '`, ' + number + ' active campaigns were found.')
-                // 	break;
-                // }
-                // error(interaction, data.meta.status)
-                // break;
+                    await createGuildCommands(interaction);
+                    await respondToInteraction(interaction, 'Donations have been setup for team `' + result.data.name + '`, ' + number + ' active campaigns were found.')
+                    return;
+                }
+                error(interaction, result.meta.status)
+                break;
+            case 'causes':
+                await respondToInteraction(interaction, 'Restricted to Tiltify registered causes with a valid API token.')
+                break;
 
-                case 'fundraising-events':
-                    await interaction.editReply('Restricted to Tiltify registered fundraising-events with a valid API token.')
-                    break;
-
-                // let eventData;
-                // fetchData('fundraising-events', interaction.options.get('id').value + '/campaigns?count=100', (callback) => eventData = callback);
-                // if (eventData.meta.status === 200) {
-                // 	eventData.data.forEach(campaign => {
-                // 		if (campaign.status !== 'retired') {
-                // 			number++;
-                // 			generateData(campaign, (callback) => dataToWrite.campaigns.push(callback))
-                // 		}
-                // 	})
-                // dataToWrite.push({ connectedId: interaction.options.get('id').value })
-                // 	await guildData.push(dataToWrite);
-                // 	writeData();
-                // 	createGuildCommands(interaction);
-                // 	interaction.editReply('Donations have been setup for event `' + result.data.name + '`, ' + number + ' active campaigns were found.')
-                // 	break;
-                // }
-                // error(interaction, data.meta.status)
-                // break;
-            }
-        });
+            case 'fundraising-events':
+                await respondToInteraction(interaction, 'Restricted to Tiltify registered fundraising-events with a valid API token.')
+                break;
+        }
     }
 
     /**
@@ -290,25 +264,25 @@ client.once('ready', async () =>
         switch (errorCode)
         {
             case 400:
-                interaction.editReply('Internal Error `400: Bad Request`')
+                respondToInteraction(interaction, 'Internal Error `400: Bad Request`')
                 break;
             case 401:
-                interaction.editReply('Your Tiltify access token is invalid. Please check your access token in the bot\'s config file. `401: Not Authorized`')
+                respondToInteraction(interaction, 'Your Tiltify access token is invalid. Please check your access token in the bot\'s config file. `401: Not Authorized`')
                 break;
             case 403:
-                interaction.editReply('You do not have access to this resource. Please check your access token in the bot\'s config file. `403: Forbidden`')
+                respondToInteraction(interaction, 'You do not have access to this resource. Please check your access token in the bot\'s config file. `403: Forbidden`')
                 break;
             case 404:
-                interaction.editReply('Your campaign/team/cause/event was not found. Please check your id. `404: Not Found`')
+                respondToInteraction(interaction, 'Your campaign/team/cause/event was not found. Please check your id. `404: Not Found`')
                 break;
             case 422:
-                interaction.editReply('Internal Error `422: Unprocessable Entity`')
+                respondToInteraction(interaction, 'Internal Error `422: Unprocessable Entity`')
                 break;
             case 0:
-                interaction.editReply('Set up the bot first!')
+                respondToInteraction(interaction, 'Set up the bot first!')
                 break;
             default:
-                interaction.editReply('There was an error getting to the Tiltify API. Please try again later. `500: Internal Server Error`')
+                respondToInteraction(interaction, 'There was an error getting to the Tiltify API. Please try again later. `500: Internal Server Error`')
                 break;
         }
     }
@@ -328,11 +302,11 @@ client.once('ready', async () =>
 
         if (action)
         {
-            await interaction.editReply('Tiltify donations have been **enabled** on this server!');
+            await respondToInteraction(interaction, 'Tiltify donations have been **enabled** on this server!');
             return;
         }
 
-        await interaction.editReply('Tiltify donations have been **disabled** on this server.')
+        await respondToInteraction(interaction, 'Tiltify donations have been **disabled** on this server.')
 
     }
 
@@ -345,25 +319,23 @@ client.once('ready', async () =>
      */
     async function addCampaign(interaction, guild)
     {
-        fetchData('campaigns', interaction.options.get('id').value, (campaignData) =>
+        let campaignData = await fetchData('campaigns', interaction.options.get('id').value)
+
+        if (campaignData.meta.status === 200)
         {
-            if (campaignData.meta.status === 200)
-            {
-                if (campaignData.data.status === 'retired')
-                    interaction.editReply('`' + result.data.name + '` has already ended, please choose an active campaign.');
-                else
-                {
-                    generateData(campaignData.data, (data) =>
-                    {
-                        guild.campaigns.push(data)
-                        guild.save().then(() => updateStatus());
-                        interaction.editReply('Campaign `' + campaignData.data.name + '` has been added.')
-                    });
-                }
-            }
+            if (campaignData.data.status === 'retired')
+                await respondToInteraction(interaction, '`' + result.data.name + '` has already ended, please choose an active campaign.');
             else
-                error(interaction, campaignData.meta.status)
-        });
+            {
+                let data = await generateData(campaignData.data)
+                guild.campaigns.push(data)
+                guild.save().then(() => updateStatus());
+                await respondToInteraction(interaction, 'Campaign `' + campaignData.data.name + '` has been added.')
+            }
+        }
+        else
+            error(interaction, campaignData.meta.status)
+
     }
 
     // Remove tracked campaign. (/remove)
@@ -372,25 +344,25 @@ client.once('ready', async () =>
         if (guild.campaigns.length > 1)
         {
             let campaign = guild.campaigns.find({tiltifyCampaignId: interaction.options.get('id').value}).exec();
-            interaction.editReply('Campaign `' + campaign.name + '` has been removed.')
+            respondToInteraction(interaction, 'Campaign `' + campaign.name + '` has been removed.')
             campaign.isActive = false;
             guild.save().then(() => updateStatus());
             return;
         }
-        interaction.editReply('There is only one active campaign, please use `/delete` instead.')
+        respondToInteraction(interaction, 'There is only one active campaign, please use `/delete` instead.')
     }
 
     // Generate embed of all tracked campaigns. (/list)
-    function generateListEmbed(interaction, guild)
+    async function generateListEmbed(interaction, guild)
     {
-        listEmbedGenerator(guild, (callback) => interaction.editReply({embeds: [callback]}))
+        await respondToInteractionRaw(interaction, {embeds: [await listEmbedGenerator(guild)]})
     }
 
     // Change channel where donations are shown. (/channel)
-    function changeChannel(interaction, guild)
+    async function changeChannel(interaction, guild)
     {
         guild.discordChannelId = interaction.options.get('id').value;
-        interaction.editReply('Donations channel has been changed to <#' + interaction.options.get('id').value + '>')
+        await respondToInteraction(interaction, 'Donations channel has been changed to <#' + interaction.options.get('id').value + '>')
         guild.save().then(() => updateStatus());
     }
 
@@ -399,34 +371,32 @@ client.once('ready', async () =>
     {
         guild.campaigns.forEach(c =>
         {
-            fetchData('campaigns', guild.campaigns[j].id, (campaignData) =>
+            let campaignData = fetchData('campaigns', c)
+            if (campaignData.data.status === 'retired')
             {
-                if (campaignData.data.status === 'retired')
-                {
-                    c.isActive = false;
-                    guild.save().then(() => updateStatus());
-                }
-                if (guild.connectedId !== undefined)
-                {
-                    fetchData(guild.type, guild.connectedId + '/campaigns?count=100', (result) =>
-                    {
-                        result.data.forEach(campaign =>
-                        {
-                            if (campaign.status !== 'retired' && !guild.campaigns.includes(item => item.id === campaign.id))
-                            {
-                                generateData(campaign, (callback) =>
-                                {
-                                    guild.campaigns.push(callback)
-                                    guild.save().then(() => updateStatus());
-                                });
-                            }
-                        })
-                    })
-                }
-            });
-        });
+                c.isActive = false;
 
-        await interaction.editReply('Campaigns have been refreshed.');
+            }
+            if (guild.connectedId !== undefined)
+            {
+                let result = fetchData(guild.type, guild.connectedId + '/campaigns?count=100')
+
+                result.data.forEach(campaign =>
+                {
+                    if (campaign.status !== 'retired' && !guild.campaigns.includes(item => item.id === campaign.id))
+                    {
+                        generateData(campaign, (callback) =>
+                        {
+                            guild.campaigns.push(callback)
+                            guild.save().then(() => updateStatus());
+                        });
+                    }
+                })
+            }
+
+        });
+        guild.save().then(() => updateStatus());
+        await respondToInteraction(interaction, 'Campaigns have been refreshed.');
 
     }
 
@@ -436,7 +406,7 @@ client.once('ready', async () =>
         await client.guilds.cache.get(interaction.guildID).commands.set([]);
         guild.campaigns = [];
         guild.save().then(() => updateStatus());
-        await interaction.editReply('The bot was deactivated. To set up again, please use `/setup`.');
+        await respondToInteraction(interaction, 'The bot was deactivated. To set up again, please use `/setup`.');
     }
 
     // Search for active campaigns. (/find)
@@ -455,98 +425,108 @@ client.once('ready', async () =>
                 resultId = 'Event ID: '
                 break;
         }
-        convertToSlug(interaction.options.get('query').value, (query) =>
-        {
-            fetchData(interaction.options.get('type').value, query, (result) =>
-            {
-                if (result.meta.status !== 200)
-                    interaction.editReply('Query `' + interaction.options.get('query').value + '` could not be found.')
-                else
-                {
-                    let name;
-                    if (interaction.options.get('type').value === 'users')
-                        name = result.data.username;
-                    else
-                        name = result.data.name;
-                    fetchData(interaction.options.get('type').value, result.data.id + '/campaigns?count=100', (campaignData) =>
-                    {
-                        if (campaignData.meta.status !== 200)
-                            interaction.editReply('Query `' + interaction.options.get('query').value + '` could not be found.')
-                        else
-                        {
-                            titleCase(name, (title) =>
-                            {
-                                let findEmbed = {
-                                    title: title + '\'s Active Campaigns',
-                                    description: resultId + result.data.id,
-                                    url: 'https://tiltify.com',
-                                    fields: [],
-                                    timestamp: new Date(),
-                                };
-                                campaignData.data.forEach(campaign =>
-                                {
-                                    if (campaign.status !== 'retired')
-                                    {
-                                        findEmbed.fields.push({
-                                            name: campaign.name,
-                                            value: `ID: ${campaign.id}`,
-                                        })
-                                    }
-                                })
-                                if (findEmbed.fields.length > 0)
-                                    interaction.editReply({embeds: [findEmbed]})
-                                else
-                                    interaction.editReply('`' + interaction.options.get('query').value + '` does not have any active campaigns.')
+        let query = convertToSlug(interaction.options.get('query').value)
+        let result = await fetchData(interaction.options.get('type').value, query)
 
-                            });
-                        }
-                    });
-                }
-            });
-        });
+        if (result.meta.status !== 200)
+            await respondToInteraction(interaction, 'Query `' + interaction.options.get('query').value + '` could not be found.')
+        else
+        {
+            let name;
+            if (interaction.options.get('type').value === 'users')
+                name = result.data.username;
+            else
+                name = result.data.name;
+            let campaignData = fetchData(interaction.options.get('type').value, result.data.id + '/campaigns?count=100')
+
+            if (campaignData.meta.status !== 200)
+                await respondToInteraction(interaction, 'Query `' + interaction.options.get('query').value + '` could not be found.')
+            else
+            {
+                let title = titleCase(name)
+
+                let findEmbed = {
+                    title: title + '\'s Active Campaigns',
+                    description: resultId + result.data.id,
+                    url: 'https://tiltify.com',
+                    fields: [],
+                    timestamp: new Date(),
+                };
+                campaignData.data.forEach(campaign =>
+                {
+                    if (campaign.status !== 'retired')
+                    {
+                        findEmbed.fields.push({
+                            name: campaign.name,
+                            value: `ID: ${campaign.id}`,
+                        })
+                    }
+                })
+                if (findEmbed.fields.length > 0)
+                    await respondToInteractionRaw(interaction, {embeds: [findEmbed]})
+                else
+                    await respondToInteraction(interaction, '`' + interaction.options.get('query').value + '` does not have any active campaigns.')
+            }
+        }
     }
 
-    // Auto refresh data every 12 hours.
+// Auto refresh data every 12 hours.
     function dailyRefresh()
     {
-        Guild.find({}).then(function (allGuilds)
+        let allGuilds = Guild.find({})
+
+        for (let i = 0; i < allGuilds.size(); i++)
         {
-
-            allGuilds.forEach(g => g.campaigns.forEach(c =>
+            const g = allGuilds[i];
+            g.campaigns.forEach(c =>
             {
-                fetchData('campaigns', c.tiltifyCampaignId, (result) =>
+                let result = fetchData('campaigns', c.tiltifyCampaignId)
+                if (result.data.status === 'retired' || result.meta.status !== 200)
+                    c.isActive = false;
+            })
+            g.save();
+        }
+
+        for (let i = 0; i < allGuilds.length; i++)
+        {
+            const g = allGuilds[i];
+            if (g.connectedId !== undefined)
+            {
+                let result = fetchData(g.tiltifyType, g.connectedId + '/campaigns?count=100')
+
+                result.data.forEach(campaign =>
                 {
-                    if (result.data.status === 'retired' || result.meta.status !== 200)
-                        c.isActive = false;
+                    if (campaign.status !== 'retired' && !g.campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
+                        g.campaigns.push(generateData(campaign));
                 })
-                g.save();
-            }));
+            }
+            g.save();
+        }
+        updateStatus()
+    }
 
-            allGuilds.forEach(g =>
-            {
-                if (g.connectedId !== undefined)
-                {
-                    fetchData(allGuilds[i].tiltifyType, g.connectedId + '/campaigns?count=100', (result) =>
-                    {
-                        result.data.forEach(campaign =>
-                        {
-                            if (campaign.status !== 'retired' && !allGuilds[i].campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
-                                generateData(campaign, (callback) =>
-                                {
-                                    g.campaigns.push(callback);
-                                    g.save().then(() => updateStatus());
-                                })
-                        })
-                    });
-                }
-            });
+// Create guild slash commands.
+    async function createGuildCommands(interaction)
+    {
+        for (const c of guildCommandData)
+        {
+            await discordInteractions.createApplicationCommand(c, interaction.guild_id);
+        }
+    }
+
+    async function respondToInteractionRaw(interaction, data)
+    {
+        client.api.interactions(interaction.id, interaction.token).callback.post({
+            data: {
+                type: 4,
+                data: data
+            }
         })
     }
 
-    // Create guild slash commands.
-    async function createGuildCommands(interaction)
+    async function respondToInteraction(interaction, content)
     {
-        await client.guilds.cache.get(interaction.guildID).commands.set(guildCommandData);
+        await respondToInteractionRaw(interaction, {content: content})
     }
 });
 
