@@ -37,7 +37,7 @@ async function generateData(campaign)
         tiltifyCampaignName: campaign.name,
         tiltifyCampaignId: campaign.id,
         tiltifyCampaignURL: campaign.user.url + '/' + campaign.slug,
-        tiltifyCause: causeData.name,
+        tiltifyCause: causeData.data.name,
         showDonations: true,
         currency: campaign.currency,
         tiltifyTeamName: teamName,
