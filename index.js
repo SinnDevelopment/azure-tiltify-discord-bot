@@ -70,13 +70,15 @@ client.once('ready', async () =>
         {
             allGuilds.forEach(guild =>
             {
-                console.debug("Checking for: " + guild.tiltifyCampaignName);
                 guild.campaigns.filter(c => c.isActive).forEach(campaign =>
                 {
+                    console.debug("Checking for: " + campaign.tiltifyCampaignName);
 
                     let donation = fetchData('campaigns', `${campaign.tiltifyCampaignId}/donations`)
                     try
                     {
+                        if (campaign.lastDonationId === 'undefined')
+                            return
                         if (campaign.lastDonationId !== donation.data[0].id)
                         {
                             let embed = generateEmbed(campaign, donation.data[0])
@@ -343,7 +345,7 @@ client.once('ready', async () =>
     {
         if (guild.campaigns.length > 1)
         {
-            let campaign = guild.campaigns.find(e => e.tiltifyCampaignId === interaction.data.options.find(e => e.name === 'id').value+'')
+            let campaign = guild.campaigns.find(e => e.tiltifyCampaignId === interaction.data.options.find(e => e.name === 'id').value + '')
             respondToInteraction(interaction, 'Campaign `' + campaign.tiltifyCampaignName + '` has been removed.')
             campaign.isActive = false;
             guild.save().then(() => updateStatus());
@@ -391,7 +393,7 @@ client.once('ready', async () =>
             }
             if (guild.connectedId !== undefined)
             {
-               await updateCampaigns(guild)
+                await updateCampaigns(guild)
             }
         }
         guild.save().then(() => updateStatus());
@@ -412,7 +414,7 @@ client.once('ready', async () =>
     {
         let resultId;
         let arg_query = interaction.data.options.find(e => e.name === 'query').value
-        let arg_type =interaction.data.options.find(e => e.name === 'type').value
+        let arg_type = interaction.data.options.find(e => e.name === 'type').value
         switch (arg_type)
         {
             case 'users':
@@ -426,7 +428,7 @@ client.once('ready', async () =>
                 break;
         }
 
-        console.log("arg:"+arg_type, "query:"+arg_query)
+        console.log("arg:" + arg_type, "query:" + arg_query)
         arg_query = convertToSlug(arg_query)
         let result = await fetchData(arg_type, arg_query)
 

@@ -6,24 +6,34 @@ This is designed to use mongo for a database instead of local flatfiles to allow
 ## Hosted Version
 This version of the bot is to be deployed for a wider setup (ie, for a team) instead of for an individual installation.
 The reason for this is that the hosted version (parent of this fork) is not "secure" in the sense that all keys are 
-plaintext available to the host.
+plaintext available to the host. The non-hosted version uses flatfile data storage, which isn't scalable, nor is it safe
+local server failures.
 
 ## Requirements
-The user configuring the bot must have the "manage messages" or admin permission on the server to invite the bot. The bot
-will only work if it has the "manage messages" permission in the channel where the command will be run, otherwise the 
-command won't work. It's recommended that you create an announcement channel that the bot and trusted users can access 
-to prevent unauthorized users from adding/removing campaigns, starting/stopping donations, etc...
+On top of the original system requirements, this version requires using the following:
+- MongoDB
+- Docker
+
+Though not required, it's strongly recommended to use the following to deploy the app:
+- AWS ECS
+- AWS DocumentDB
+
+If needed, AWS DocumentDB can be replaced with a self-hosted mongodb instance.
+
 
 ## Installation
-You will need a Discord bot token, and a Tiltify API access token, obtaining the two are outside the scope of this guide.
-Download the latest [release](https://github.com/nicnacnic/tiltify-donation-bot/releases),
-and unzip the files to a folder of your choice. In `config.json`, copy/paste your bot token and access token into the
-first two fields. Finally, run `node index.js` whenever you want to start the bot. *Note that it can take up to an hour
-for the slash commands to appear on first startup.*
+Requirements:
+- Mongo DB URI
+- Discord Bot Token
+- Discord Integration/App Id
+- Discord Integration Public Key
+- Tiltify API Access Token
+
+Set the relevant environment variables as specified in `config.js`.
 
 ## Usage
 To get started, run the `/setup` command, select your type, and enter an id. If successful, the bot will find an active 
-campaign to track. Finally, run `/tiltify start` to start the donation stream.
+campaign to track. Finally, run `/tiltify action:start` to start the donation stream.
 
 To find active campaigns, run `/find`, select your type and enter a search query. If found, the bot will list all active
 campaigns and their id's.
@@ -34,7 +44,7 @@ only accessible once the bot has been setup with `/setup`.
 
 #### General Commands
 - `/find <type> <query>`: Search for active campaigns by user, team, or cause
-- `/ping`: Test the bot's response time to the server
+- `/ping`: Test the bot's response time to the server (Not currently implemented)
 - `/setup <type> <id>`: Setup the bot with your Tiltify campaign information
 
 #### Locked Commands
