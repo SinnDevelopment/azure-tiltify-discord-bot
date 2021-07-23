@@ -56,7 +56,7 @@ client.once('ready', async () =>
     else
     {
         console.log("Commands have been installed already");
-        console.debug(commandList)
+        console.debug(JSON.stringify(commandList))
     }
 
     console.log('Global command check complete, the bot is now online.');
