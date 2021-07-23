@@ -15,8 +15,7 @@ const {
 } = require('./utils');
 
 
-console.log("CONFIG: ");
-console.log(C);
+console.log("CONFIG: " + JSON.stringify(C));
 
 const client = new Discord.Client({intents: ['GUILDS', 'GUILD_MESSAGES']});
 const discordInteractions = new DiscordInteractions({
@@ -36,7 +35,7 @@ db.on('open', function ()
     console.log("Connected to mongo.");
     Guild.find({}).then(function (found)
     {
-        console.log("Found " + found.length + " documents");
+        console.log("Found " + found.length + " guilds");
     })
 })
 
@@ -50,7 +49,9 @@ client.once('ready', async () =>
         await client.application?.commands.set(globalCommandData);
 
         let commandList = await discordInteractions.getApplicationCommands();
-        commandList.forEach(console.log)
+        let currentCommands = ""
+        commandList.forEach(c => currentCommands += JSON.stringify(c))
+        console.log(currentCommands)
     }
     else
     {
@@ -106,8 +107,8 @@ client.once('ready', async () =>
     // Check and route a command.
     client.ws.on('INTERACTION_CREATE', async interaction =>
     {
-        console.log("Interaction received");
-        console.log(interaction);
+        console.log("Interaction received: " +JSON.stringify(interaction));
+
         let isSetup = await Guild.exists({discordGuildId: interaction.guild_id});
         const guild = await Guild.findOne({discordGuildId: interaction.guild_id}).exec();
 
@@ -428,7 +429,6 @@ client.once('ready', async () =>
                 break;
         }
 
-        console.log("arg:" + arg_type, "query:" + arg_query)
         arg_query = convertToSlug(arg_query)
         let result = await fetchData(arg_type, arg_query)
 
@@ -476,9 +476,8 @@ client.once('ready', async () =>
     {
         let allGuilds = Guild.find({})
 
-        for (let i = 0; i < allGuilds.size(); i++)
+        for (let g of allGuilds)
         {
-            const g = allGuilds[i];
             g.campaigns.forEach(c =>
             {
                 let result = fetchData('campaigns', c.tiltifyCampaignId)
@@ -488,9 +487,8 @@ client.once('ready', async () =>
             g.save();
         }
 
-        for (let i = 0; i < allGuilds.length; i++)
+        for (let g of allGuilds)
         {
-            const g = allGuilds[i];
             if (g.connectedId !== undefined)
                 await updateCampaigns(g)
 
