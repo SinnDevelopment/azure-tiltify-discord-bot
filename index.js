@@ -60,7 +60,6 @@ client.once('ready', async () =>
     }
 
     console.log('Global command check complete, the bot is now online.');
-    updateStatus();
     await dailyRefresh();
 
     // Check donations every n seconds (defined in config).
@@ -85,7 +84,7 @@ client.once('ready', async () =>
                             let embed = generateEmbed(campaign, donation.data[0])
                             client.channels.cache.get(guild.discordChannelId).send({embeds: [embed]})
                             campaign.lastDonationId = donation.data[0].id;
-                            guild.save().then(() => updateStatus());
+                            guild.save()
                         }
                     }
                     catch
@@ -107,7 +106,7 @@ client.once('ready', async () =>
     // Check and route a command.
     client.ws.on('INTERACTION_CREATE', async interaction =>
     {
-        console.log("Interaction received: " +JSON.stringify(interaction));
+        console.log("Interaction received: " + JSON.stringify(interaction));
 
         let isSetup = await Guild.exists({discordGuildId: interaction.guild_id});
         const guild = await Guild.findOne({discordGuildId: interaction.guild_id}).exec();
@@ -150,15 +149,10 @@ client.once('ready', async () =>
     /**
      * Update the status message in Discord.
      */
-    function updateStatus()
+    function updateStatus(numCampaigns, guilds)
     {
-        let numCampaigns = 0;
-        Guild.find({}).then(function (guilds)
-        {
-            guilds.forEach(g => numCampaigns += g.campaigns.length);
-        });
         client.user.setPresence({status: "online"});
-        client.user.setActivity(numCampaigns + ' campaigns...', {type: "WATCHING"});
+        client.user.setActivity(numCampaigns + ' campaigns on ' + guilds + ' servers', {type: "WATCHING"});
     }
 
     //
@@ -218,7 +212,7 @@ client.once('ready', async () =>
                     return;
                 }
                 guild.campaigns.push(generateData(result.data));
-                guild.save().then(() => updateStatus());
+                guild.save()
                 await respondToInteraction(interaction, 'Donations have been setup for campaign `' + result.data.name + '`.')
 
                 break;
@@ -239,7 +233,7 @@ client.once('ready', async () =>
                             guild.campaigns.push(await generateData(campaign));
                         }
                     }
-                    guild.save().then(() => updateStatus());
+                    guild.save()
                     guild.connectedId = id_param.value;
 
                     await respondToInteraction(interaction, 'Donations have been setup for team `' + result.data.name + '`, ' + number + ' active campaigns were found.')
@@ -301,7 +295,7 @@ client.once('ready', async () =>
         let action = interaction.data.options.find(e => e.name === 'action').value === 'start';
 
         guild.isActive = action;
-        guild.save().then(() => updateStatus());
+        guild.save()
 
         if (action)
         {
@@ -332,7 +326,7 @@ client.once('ready', async () =>
             {
                 let data = await generateData(campaignData.data)
                 guild.campaigns.push(data)
-                guild.save().then(() => updateStatus());
+                guild.save()
                 await respondToInteraction(interaction, 'Campaign `' + campaignData.data.name + '` has been added.')
             }
         }
@@ -349,7 +343,7 @@ client.once('ready', async () =>
             let campaign = guild.campaigns.find(e => e.tiltifyCampaignId === interaction.data.options.find(e => e.name === 'id').value + '')
             respondToInteraction(interaction, 'Campaign `' + campaign.tiltifyCampaignName + '` has been removed.')
             campaign.isActive = false;
-            guild.save().then(() => updateStatus());
+            guild.save()
             return;
         }
         respondToInteraction(interaction, 'There is only one active campaign, please use `/delete` instead.')
@@ -379,7 +373,7 @@ client.once('ready', async () =>
     {
         guild.discordChannelId = interaction.data.options.find(e => e.name === 'id').value
         await respondToInteraction(interaction, 'Donations channel has been changed to <#' + interaction.data.options.find(e => e.name === 'id').value + '>')
-        guild.save().then(() => updateStatus());
+        guild.save()
     }
 
     // Refresh campaign data. (/refresh)
@@ -397,7 +391,7 @@ client.once('ready', async () =>
                 await updateCampaigns(guild)
             }
         }
-        guild.save().then(() => updateStatus());
+        guild.save()
         await respondToInteraction(interaction, 'Campaigns have been refreshed.');
     }
 
@@ -406,7 +400,7 @@ client.once('ready', async () =>
     {
         await client.guilds.cache.get(interaction.guildID).commands.set([]);
         guild.campaigns = [];
-        guild.save().then(() => updateStatus());
+        guild.save()
         await respondToInteraction(interaction, 'The bot was deactivated. To set up again, please use `/setup`.');
     }
 
@@ -474,36 +468,42 @@ client.once('ready', async () =>
 // Auto refresh data every 12 hours.
     async function dailyRefresh()
     {
-        let allGuilds = Guild.find({})
-
-        for (let g of allGuilds)
+        let cursor = Guild.find().cursor();
+        let numCampaigns = 0;
+        let numGuilds = 0;
+        for (let g = await cursor.next(); g != null; g = await cursor.next())
         {
-            g.campaigns.forEach(c =>
+            numGuilds++;
+            for (const c of g.campaigns)
             {
-                let result = fetchData('campaigns', c.tiltifyCampaignId)
+                let result = await fetchData('campaigns', c.tiltifyCampaignId)
+                console.log(c.tiltifyCampaignName + ":" + result.data.status)
                 if (result.data.status === 'retired' || result.meta.status !== 200)
                     c.isActive = false;
-            })
-            g.save();
-        }
-
-        for (let g of allGuilds)
-        {
+                else
+                    numCampaigns++;
+            }
             if (g.connectedId !== undefined)
                 await updateCampaigns(g)
-
-            g.save();
+            await g.save();
         }
-        updateStatus()
+        console.log("Daily count: " + numCampaigns, "Daily Guilds: " + numGuilds)
+        updateStatus(numCampaigns, numGuilds)
     }
 
     async function updateCampaigns(guild)
     {
         let result = await fetchData(guild.tiltifyType, guild.connectedId + '/campaigns?count=100')
-
         for (const campaign of result.data)
-            if (campaign.status !== 'retired' && !guild.campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
+        {
+            if (campaign.status !== 'retired'
+                && guild.campaigns.filter(item => item.tiltifyCampaignId === '' + campaign.id).length === 0)
+            {
+                console.log("adding missing campaign: " + campaign.id)
                 guild.campaigns.push(await generateData(campaign));
+            }
+
+        }
     }
 
     async function respondToInteractionRaw(interaction, data)
