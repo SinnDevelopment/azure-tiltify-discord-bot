@@ -9,11 +9,9 @@ const {
     fetchData,
     generateData,
     generateEmbed,
-    listEmbedGenerator,
     convertToSlug,
     titleCase,
     globalCommandData,
-    guildCommandData
 } = require('./utils');
 
 
@@ -50,6 +48,9 @@ client.once('ready', async () =>
     {
         console.log("Global commands are out of date, installing")
         await client.application?.commands.set(globalCommandData);
+
+        let commandList = await discordInteractions.getApplicationCommands();
+        commandList.forEach(console.log)
     }
     else
     {
@@ -59,7 +60,7 @@ client.once('ready', async () =>
 
     console.log('Global command check complete, the bot is now online.');
     updateStatus();
-    dailyRefresh();
+    await dailyRefresh();
 
     // Check donations every n seconds (defined in config).
     setInterval(function ()
@@ -79,7 +80,7 @@ client.once('ready', async () =>
                         if (campaign.lastDonationId !== donation.data[0].id)
                         {
                             let embed = generateEmbed(campaign, donation.data[0])
-                            client.channels.cache.get(guild.discordChannelId).send({embeds: [callback]})
+                            client.channels.cache.get(guild.discordChannelId).send({embeds: [embed]})
                             campaign.lastDonationId = donation.data[0].id;
                             guild.save().then(() => updateStatus());
                         }
@@ -106,8 +107,8 @@ client.once('ready', async () =>
         console.log("Interaction received");
         console.log(interaction);
         let isSetup = await Guild.exists({discordGuildId: interaction.guild_id});
-        let guild = await Guild.find({discordGuildId: interaction.guild_id}).exec();
-        console.log("guild: " + guild)
+        const guild = await Guild.findOne({discordGuildId: interaction.guild_id}).exec();
+
         switch (interaction.data.name)
         {
             case 'ping':
@@ -176,6 +177,7 @@ client.once('ready', async () =>
      */
     async function setupTiltify(interaction, guild)
     {
+
         if (await Guild.exists({discordGuildId: interaction.guild_id}))
         {
             console.log(`requesting guild Id: ${interaction.guild_id} - found`)
@@ -214,7 +216,6 @@ client.once('ready', async () =>
                 }
                 guild.campaigns.push(generateData(result.data));
                 guild.save().then(() => updateStatus());
-                await createGuildCommands(interaction);
                 await respondToInteraction(interaction, 'Donations have been setup for campaign `' + result.data.name + '`.')
 
                 break;
@@ -238,7 +239,6 @@ client.once('ready', async () =>
                     guild.save().then(() => updateStatus());
                     guild.connectedId = id_param.value;
 
-                    await createGuildCommands(interaction);
                     await respondToInteraction(interaction, 'Donations have been setup for team `' + result.data.name + '`, ' + number + ' active campaigns were found.')
                     return;
                 }
@@ -295,7 +295,7 @@ client.once('ready', async () =>
      */
     async function startStopDonations(interaction, guild)
     {
-        let action = interaction.options.get('action').value === 'start';
+        let action = interaction.data.options.find(e => e.name === 'action').value === 'start';
 
         guild.isActive = action;
         guild.save().then(() => updateStatus());
@@ -319,7 +319,7 @@ client.once('ready', async () =>
      */
     async function addCampaign(interaction, guild)
     {
-        let campaignData = await fetchData('campaigns', interaction.options.get('id').value)
+        let campaignData = await fetchData('campaigns', interaction.data.options.find(e => e.name === 'id').value)
 
         if (campaignData.meta.status === 200)
         {
@@ -343,8 +343,8 @@ client.once('ready', async () =>
     {
         if (guild.campaigns.length > 1)
         {
-            let campaign = guild.campaigns.find({tiltifyCampaignId: interaction.options.get('id').value}).exec();
-            respondToInteraction(interaction, 'Campaign `' + campaign.name + '` has been removed.')
+            let campaign = guild.campaigns.find(e => e.tiltifyCampaignId === interaction.data.options.find(e => e.name === 'id').value+'')
+            respondToInteraction(interaction, 'Campaign `' + campaign.tiltifyCampaignName + '` has been removed.')
             campaign.isActive = false;
             guild.save().then(() => updateStatus());
             return;
@@ -355,14 +355,27 @@ client.once('ready', async () =>
     // Generate embed of all tracked campaigns. (/list)
     async function generateListEmbed(interaction, guild)
     {
-        await respondToInteractionRaw(interaction, {embeds: [await listEmbedGenerator(guild)]})
+        let listEmbed = {
+            title: 'Tracked Campaigns',
+            url: 'https://tiltify.com',
+            fields: [],
+            timestamp: new Date(),
+        };
+        guild.campaigns.forEach(campaign =>
+        {
+            listEmbed.fields.push({
+                name: campaign.tiltifyCampaignName,
+                value: `Cause: ${campaign.tiltifyCause}\nTeam: ${campaign.tiltifyTeamName}\nID: ${campaign.tiltifyCampaignId}`,
+            })
+        })
+        await respondToInteractionRaw(interaction, {embeds: [listEmbed]})
     }
 
     // Change channel where donations are shown. (/channel)
     async function changeChannel(interaction, guild)
     {
-        guild.discordChannelId = interaction.options.get('id').value;
-        await respondToInteraction(interaction, 'Donations channel has been changed to <#' + interaction.options.get('id').value + '>')
+        guild.discordChannelId = interaction.data.options.find(e => e.name === 'id').value
+        await respondToInteraction(interaction, 'Donations channel has been changed to <#' + interaction.data.options.find(e => e.name === 'id').value + '>')
         guild.save().then(() => updateStatus());
     }
 
@@ -371,15 +384,14 @@ client.once('ready', async () =>
     {
         for (const c of guild.campaigns)
         {
-            let campaignData = await fetchData('campaigns', c)
+            let campaignData = await fetchData('campaigns', c.tiltifyCampaignId)
             if (campaignData.data.status === 'retired')
             {
                 c.isActive = false;
-
             }
             if (guild.connectedId !== undefined)
             {
-                updateCampaigns(guild)
+               await updateCampaigns(guild)
             }
         }
         guild.save().then(() => updateStatus());
@@ -399,7 +411,9 @@ client.once('ready', async () =>
     async function findCampaigns(interaction, guild)
     {
         let resultId;
-        switch (interaction.options.get('type').value)
+        let arg_query = interaction.data.options.find(e => e.name === 'query').value
+        let arg_type =interaction.data.options.find(e => e.name === 'type').value
+        switch (arg_type)
         {
             case 'users':
                 resultId = 'User ID: '
@@ -411,22 +425,24 @@ client.once('ready', async () =>
                 resultId = 'Event ID: '
                 break;
         }
-        let query = convertToSlug(interaction.options.get('query').value)
-        let result = await fetchData(interaction.options.get('type').value, query)
+
+        console.log("arg:"+arg_type, "query:"+arg_query)
+        arg_query = convertToSlug(arg_query)
+        let result = await fetchData(arg_type, arg_query)
 
         if (result.meta.status !== 200)
-            await respondToInteraction(interaction, 'Query `' + interaction.options.get('query').value + '` could not be found.')
+            await respondToInteraction(interaction, 'Query `' + arg_query + '` could not be found.')
         else
         {
             let name;
-            if (interaction.options.get('type').value === 'users')
+            if (arg_type === 'users')
                 name = result.data.username;
             else
                 name = result.data.name;
-            let campaignData = fetchData(interaction.options.get('type').value, result.data.id + '/campaigns?count=100')
+            let campaignData = await fetchData(arg_type, result.data.id + '/campaigns?count=100')
 
             if (campaignData.meta.status !== 200)
-                await respondToInteraction(interaction, 'Query `' + interaction.options.get('query').value + '` could not be found.')
+                await respondToInteraction(interaction, 'Query `' + arg_query + '` could not be found.')
             else
             {
                 let title = titleCase(name)
@@ -438,20 +454,17 @@ client.once('ready', async () =>
                     fields: [],
                     timestamp: new Date(),
                 };
-                campaignData.data.forEach(campaign =>
+                campaignData.data.filter(c => c.status !== 'retired').forEach(campaign =>
                 {
-                    if (campaign.status !== 'retired')
-                    {
-                        findEmbed.fields.push({
-                            name: campaign.name,
-                            value: `ID: ${campaign.id}`,
-                        })
-                    }
+                    findEmbed.fields.push({
+                        name: campaign.name,
+                        value: `ID: ${campaign.id}`,
+                    })
                 })
                 if (findEmbed.fields.length > 0)
                     await respondToInteractionRaw(interaction, {embeds: [findEmbed]})
                 else
-                    await respondToInteraction(interaction, '`' + interaction.options.get('query').value + '` does not have any active campaigns.')
+                    await respondToInteraction(interaction, '`' + arg_query + '` does not have any active campaigns.')
             }
         }
     }
@@ -477,7 +490,7 @@ client.once('ready', async () =>
         {
             const g = allGuilds[i];
             if (g.connectedId !== undefined)
-                updateCampaigns(g)
+                await updateCampaigns(g)
 
             g.save();
         }
@@ -491,15 +504,6 @@ client.once('ready', async () =>
         for (const campaign of result.data)
             if (campaign.status !== 'retired' && !guild.campaigns.includes(item => item.tiltifyCampaignId === campaign.id))
                 guild.campaigns.push(await generateData(campaign));
-    }
-
-// Create guild slash commands.
-    async function createGuildCommands(interaction)
-    {
-        for (const c of guildCommandData)
-        {
-            await discordInteractions.createApplicationCommand(c, interaction.guild_id);
-        }
     }
 
     async function respondToInteractionRaw(interaction, data)

@@ -2,7 +2,6 @@ const mongoose = require('mongoose');
 const TILTIFY_CAMPAIGN = new mongoose.Schema({
     tiltifyCampaignName: String,
     tiltifyCampaignId: String,
-    tiltifyAuthToken: String,
     tiltifyCampaignURL: String,
     tiltifyCause: String,
     showDonations: Boolean,
