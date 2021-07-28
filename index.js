@@ -14,6 +14,13 @@ const {
     globalCommandData,
 } = require('./utils');
 
+const http = require('http');
+
+//create a server object:
+http.createServer(function (req, res) {
+    res.write("Go away. There's nothing here for you");
+    res.end();
+}).listen(8080);
 
 console.log("CONFIG: " + JSON.stringify(C));
 
