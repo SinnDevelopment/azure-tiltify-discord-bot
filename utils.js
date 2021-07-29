@@ -1,5 +1,6 @@
 const fetch = require('node-fetch');
 const C = require('./config')
+const Discord = require("discord.js");
 
 /**
  * Tiltify API Proxy Method
@@ -27,7 +28,7 @@ async function generateData(campaign)
     let causeData = await fetchData('causes', campaign.causeId)
     let teamID = 0;
     let teamName = 'None';
-    if (campaign.team !== undefined)
+    if (campaign.team !== undefined && campaign.team !== null)
         teamID = campaign.team.id;
 
     let result = await fetchData('teams', teamID);
@@ -53,9 +54,9 @@ function generateEmbed(campaign, donation)
     let donationComment = 'No comment.'
     if (donation.comment !== '')
         donationComment = donation.comment;
-    return {
-        title: campaign.name + ' received a donation!',
-        url: campaign.url,
+    return new Discord.MessageEmbed({
+        title: campaign.tiltifyCampaignName + ' received a donation!',
+        url: campaign.tiltifyCampaignURL,
         thumbnail: {
             url: campaign.tiltifyAvatarURL,
         },
@@ -69,7 +70,7 @@ function generateEmbed(campaign, donation)
         footer: {
             text: 'Donated towards ' + campaign.tiltifyCause,
         }
-    };
+    });
 }
 
 function convertToSlug(text)

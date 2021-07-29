@@ -72,36 +72,7 @@ client.once('ready', async () =>
     // Check donations every n seconds (defined in config).
     setInterval(function ()
     {
-        //console.debug("Checking for donations...")
-        Guild.find({isActive: true}).then(function (allGuilds)
-        {
-            allGuilds.forEach(guild =>
-            {
-                guild.campaigns.filter(c => c.isActive).forEach(campaign =>
-                {
-                    console.debug("Checking for: " + campaign.tiltifyCampaignName);
-
-                    let donation = fetchData('campaigns', `${campaign.tiltifyCampaignId}/donations`)
-                    try
-                    {
-                        if (campaign.lastDonationId === 'undefined')
-                            return
-                        if (campaign.lastDonationId !== donation.data[0].id)
-                        {
-                            let embed = generateEmbed(campaign, donation.data[0])
-                            client.channels.cache.get(guild.discordChannelId).send({embeds: [embed]})
-                            campaign.lastDonationId = donation.data[0].id;
-                            guild.save()
-                        }
-                    }
-                    catch
-                    {
-                        console.log('There was an error reading donation data on ' + Date.toString());
-                    }
-
-                });
-            })
-        })
+        refreshDonations()
     }, C.DONATION_REFRESH)
 
     // Auto refresh data every 12 hours.
@@ -162,6 +133,43 @@ client.once('ready', async () =>
         client.user.setActivity(numCampaigns + ' campaigns on ' + guilds + ' servers', {type: "WATCHING"});
     }
 
+    function refreshDonations()
+    {
+        Guild.find({isActive: true}).then(async function (allGuilds)
+        {
+            for (const guild of allGuilds)
+            {
+                for (const campaign of guild.campaigns.filter(c => c.isActive))
+                {
+                    console.debug("Checking for: " + campaign.tiltifyCampaignName, Date.now());
+
+                    let donation = await fetchData('campaigns', `${campaign.tiltifyCampaignId}/donations`)
+                    try
+                    {
+                        if (campaign.lastDonationId === 'undefined' || donation.data.length === 0)
+                            continue;
+                        if (campaign.lastDonationId !== Number(donation.data[0].id))
+                        {
+                            let embed = generateEmbed(campaign, donation.data[0])
+                            const channel = client.channels.cache.find(c => c.id === guild.discordChannelId)
+                            channel.send({
+                                embeds: [embed]
+                            });
+                            campaign.lastDonationId = donation.data[0].id;
+                            guild.save()
+                        }
+                    }
+                    catch (exception)
+                    {
+                        console.log('There was an error reading donation data on ' + Date.now());
+                        console.log(exception)
+                    }
+                }
+            }
+        })
+    }
+
+
     //
     /**
      * Check bot ping time
@@ -219,7 +227,7 @@ client.once('ready', async () =>
                     return;
                 }
                 guild.campaigns.push(generateData(result.data));
-                guild.save()
+                await guild.save()
                 await respondToInteraction(interaction, 'Donations have been setup for campaign `' + result.data.name + '`.')
 
                 break;
@@ -232,15 +240,22 @@ client.once('ready', async () =>
                 let teamData = await fetchData('teams', id_param.value + '/campaigns?count=100')
                 if (teamData.meta.status === 200)
                 {
-                    for (const campaign of teamData.data)
+                    for (const teamCampaign of teamData.data)
                     {
-                        if (campaign.status !== 'retired')
+                        if (teamCampaign.status !== 'retired')
                         {
-                            number++;
-                            guild.campaigns.push(await generateData(campaign));
+                            let tc_id = teamCampaign.id
+                            let supportingCampaigns = await fetchData('campaigns', `${tc_id}/supporting-campaigns`)
+                            for(const suppCampaign of supportingCampaigns.data)
+                            {
+                                number++;
+                                let c = await fetchData('campaigns', suppCampaign.id)
+                                guild.campaigns.push(await generateData(c.data));
+                            }
+
                         }
                     }
-                    guild.save()
+                    await guild.save()
                     guild.connectedId = id_param.value;
 
                     await respondToInteraction(interaction, 'Donations have been setup for team `' + result.data.name + '`, ' + number + ' active campaigns were found.')
@@ -254,6 +269,8 @@ client.once('ready', async () =>
 
             case 'fundraising-events':
                 await respondToInteraction(interaction, 'Restricted to Tiltify registered fundraising-events with a valid API token.')
+                break;
+            default:
                 break;
         }
     }
