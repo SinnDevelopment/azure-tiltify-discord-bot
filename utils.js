@@ -48,6 +48,12 @@ async function generateData(campaign)
     }
 }
 
+/**
+ * Generates the embed used for campaign tracking updates
+ * @param campaign
+ * @param donation
+ * @returns {module:"discord.js".MessageEmbed}
+ */
 function generateEmbed(campaign, donation)
 {
     let currency = convertCurrency(campaign.currency);
@@ -73,11 +79,21 @@ function generateEmbed(campaign, donation)
     });
 }
 
+/**
+ * Convert a given input to a url slug (users, teams)
+ * @param text
+ * @returns {string}
+ */
 function convertToSlug(text)
 {
-    return text.toLowerCase().replace(/[^\w ]+/g, '').replace(/ +/g, '-');
+    return text.toLowerCase().replace(/ +/g, '-');
 }
 
+/**
+ * Convert a string to titlecase
+ * @param str
+ * @returns {string}
+ */
 function titleCase(str)
 {
     return str.toLowerCase().split(' ').map(function (word)
@@ -86,6 +102,11 @@ function titleCase(str)
     }).join(' ');
 }
 
+/**
+ * Get a given currency symbol for a shortcode
+ * @param currencyCode
+ * @returns {string|*}
+ */
 function convertCurrency(currencyCode)
 {
     const currencySymbols = {
@@ -137,6 +158,28 @@ function convertCurrency(currencyCode)
 }
 
 const globalCommandData = [
+    {
+        name: 'allowinactive',
+        description: 'Allow inactive/not-primary campaigns to be added/tracked.',
+        options: [
+            {
+                name: 'enabled',
+                type: 'STRING',
+                description: 'Allow inactive/not-primary campaigns',
+                required: true,
+                choices: [
+                    {
+                        name: 'yes',
+                        value: 'true',
+                    },
+                    {
+                        name: 'no',
+                        value: 'false',
+                    }
+                ],
+            }
+        ]
+    },
     {
         name: 'find',
         description: 'Search for active campaigns by user, team or cause',

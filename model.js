@@ -18,5 +18,11 @@ const TILTIFY_CAMPAIGN = new mongoose.Schema({
     isActive: Boolean,
     tiltifyType: String,
     connectedId: String,
+    allowNonActiveCampaigns: Boolean,
 });
-module.exports= {DISCORD_GUILD: DISCORD_GUILD};
+
+
+module.exports = {
+    DISCORD_GUILD: DISCORD_GUILD,
+    TILTIFY_CAMPAIGN: TILTIFY_CAMPAIGN
+};
