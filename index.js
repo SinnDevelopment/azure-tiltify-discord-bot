@@ -129,7 +129,7 @@ client.once('ready', async () =>
             }
         }
         else
-            await error(interaction,)
+            await error(interaction,-2)
     });
 });
 
@@ -143,7 +143,7 @@ function managePermission(interaction)
 {
     let guild = client.guilds.cache.get(interaction.guild_id)
     let member = guild.members.cache.get(interaction.member.user.id)
-    return member.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)
+    return member.permissions.has(Discord.Permissions.FLAGS.MANAGE_CHANNELS)
 }
 
 
@@ -344,6 +344,9 @@ async function error(interaction, errorCode)
             break;
         case -1:
             await respondToInteraction(interaction, 'You don\'t have permission to do this!')
+            break;
+        case -2:
+            await respondToInteraction(interaction, 'You do not have the MANAGE_CHANNELS permission.')
             break;
         default:
             await respondToInteraction(interaction, 'There was an error getting to the Tiltify API. Please try again later. `500: Internal Server Error`')
