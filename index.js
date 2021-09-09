@@ -95,7 +95,7 @@ client.once('ready', async () =>
             switch (interaction.data.name)
             {
                 case 'ping':
-                    pingPong(interaction, guild);
+                    await pingPong(interaction, guild);
                     break;
                 case 'setup':
                     await setupTiltify(interaction, guild);
@@ -122,14 +122,14 @@ client.once('ready', async () =>
                     isSetup ? await deleteData(interaction, guild) : await error(interaction, 0);
                     break;
                 case 'find':
-                    isSetup ? await findCampaigns(interaction, guild) : await error(interaction, 0);
+                    await findCampaigns(interaction, guild)
                     break;
                 case 'allowinactive':
                     isSetup ? await allowInactiveCampaigns(interaction, guild) : await error(interaction, -1);
             }
         }
         else
-            await error(interaction,-2)
+            await error(interaction, -2)
     });
 });
 
@@ -364,7 +364,7 @@ async function startStopDonations(interaction, guild)
     let action = interaction.data.options.find(e => e.name === 'action').value === 'start';
 
     guild.isActive = action;
-    guild.save()
+    await guild.save()
 
     if (action)
     {
@@ -471,6 +471,8 @@ async function changeChannel(interaction, guild)
  */
 async function refreshData(interaction, guild)
 {
+    await respondToInteraction(interaction, 'Campaigns will be refreshed.');
+
     for (const c of guild.campaigns)
     {
         let campaignData = await fetchData('campaigns', c.tiltifyCampaignId)
@@ -483,8 +485,7 @@ async function refreshData(interaction, guild)
             await updateCampaigns(guild)
         }
     }
-    guild.save()
-    await respondToInteraction(interaction, 'Campaigns have been refreshed.');
+    await guild.save()
 }
 
 // Delete all data. (/delete)
