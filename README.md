@@ -1,5 +1,5 @@
-# aws-tiltify-discord-bot
-A bot designed to be deployed to AWS (or another cloud with slight modification) that posts updates to discord based on a Tiltify campaign.
+# azure-tiltify-discord-bot
+A bot designed to be deployed to the cloud (Azure now) (or another cloud with slight modification) that posts updates to discord based on a Tiltify campaign.
 
 This is designed to use mongo for a database instead of local flatfiles to allow for cloud deployment/containerization.
 
@@ -15,8 +15,7 @@ On top of the original system requirements, this version requires using the foll
 - Docker
 
 Though not required, it's strongly recommended to use the following to deploy the app:
-- AWS ECS
-- AWS DocumentDB
+- Azure ACI
 
 If needed, AWS DocumentDB can be replaced with a self-hosted mongodb instance.
 
